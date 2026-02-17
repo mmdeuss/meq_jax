@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "meq_jax"
+description = "MEQ-JAX is a free-boundary Grad-Shafranov solver implemented in JAX."
+version = "0.1.0"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{name = "MEQ-JAX authors", email = "pfau@google.com"}]
+classifiers = [
+    "Intended Audience :: Science/Research",
+]
+requires-python = ">=3.11"
+dependencies = [
+    "numpy >= 2.4",
+    "absl-py >= 2.0",
+    "jax >= 0.9.0.1",
+    "oct2py >= 5.6.0",
+    "jaxtyping >= 0.3.2",
+    "jaxopt >= 0.8.2",
+    "chex >= 0.1.90",
+    "scipy >= 1.13.0",
+    "matplotlib >= 3.3.0",
+    "einops >= 0.8.0",
+    "meqpy@git+https://github.com/google-deepmind/meqpy.git",
+]
+
+readme = "README.md"
+
+[tool.setuptools]
+packages = ["meq_jax", "meq_jax._src"]
+package-dir = {"meq_jax" = "."}
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "-ra -q"
+testpaths = [
+    "tests",
+]
