@@ -35,7 +35,7 @@ ARG GITLAB_TOKEN
 WORKDIR /app
 
 # Clone via HTTPS using the token.
-RUN git clone https://oauth2:${GITLAB_TOKEN}@gitlab.epfl.ch/spc/tcv/tbx/meq.git meq && \
+RUN git clone https://oauth2:${GITLAB_TOKEN}@gitlab.epfl.ch/spc/public/meq/meq.git meq && \
     cd meq && \
     git config --global url."https://".insteadOf git:// && \
     git submodule update --init --recursive && \
