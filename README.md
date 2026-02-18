@@ -1,6 +1,6 @@
 # MEQ-JAX: Magnetic EQuilibrium Solver in JAX
 
-MEQ-JAX is a rewrite of the [MEQ Matlab package](https://gitlab.epfl.ch/spc/tcv/tbx/meq)
+MEQ-JAX is a rewrite of the [MEQ Matlab package](https://gitlab.epfl.ch/spc/public/meq/meq)
 in JAX, enabling automatic differentiation, automatic batching, and running on
 accelerators like GPU and TPU. Currently MEQ-JAX is experimental, and only
 supports the [FGE](https://arxiv.org/abs/2512.06847) (Free-Boundary
