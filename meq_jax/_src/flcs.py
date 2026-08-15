@@ -165,7 +165,10 @@ def flcs(Fx: jt.Float[jt.Array, 'ny nx'],
     # Check for extremas when limiter contour has a slope discontinuity
     # (e.g. baffle tip).
     snew = jnp.clip(ss + dss, smin, smax)
-    mask = ~spike & ((snew == smin) | (snew == smax))
+    # Restrict to extrema points: Matlab only iterates over extrema (il), so
+    # non-extrema points must not enter the discontinuity handling nor keep
+    # the loop running via `any(mask)` in the convergence check.
+    mask = ~spike & ((snew == smin) | (snew == smax)) & ~mask_non_extrema
 
     def _dss_fun(dss_, snew_, smin_, ss_, ib_):
       eps_ = jax.lax.cond(snew_ == smin_,
@@ -219,7 +222,11 @@ def flcs(Fx: jt.Float[jt.Array, 'ny nx'],
     dss = jnp.where(mask, dss_, dss)
     spike = jnp.where(mask, spike_, spike)
 
-    ss = (ss + dss + eps) % 1.0
+    # NOTE: must match Matlab's `ss = mod(ss + dss,1)` exactly: the
+    # discontinuity handler above may return an eps-sized step (case 2,
+    # `dss = sx[1] - ss`) to move the point across a segment joint. Adding
+    # any offset here would cancel that step and pin the point at the break.
+    ss = (ss + dss) % 1.0
     rs_, zs_ = bspsum_to_rz(ss, 0)
 
     # Maximum change in real space coordinates (R,Z)

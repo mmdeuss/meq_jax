@@ -251,6 +251,73 @@ def gszrmex(
   return fx + (fx_forward - fx_backward) * scaling_vector
 
 
+def gszr_operator(
+    cx: jt.Float[jt.Array, 'nr2'],
+    cq: jt.Float[jt.Array, 'nz2 nr2'],
+    cr: jt.Float[jt.Array, 'nz2 nr2'],
+    cs: jt.Float[jt.Array, 'nz2 nr2'],
+    ci: jt.Float[jt.Array, ''],
+    co: jt.Float[jt.Array, ''],
+    nr2: int,
+    nz2: int,
+) -> tuple[
+    jt.Float[jt.Array, '2*nz2+2*nr2+4 (nr2+2)*(nz2+2)'],
+    jt.Float[jt.Array, 'nr2*nz2 (nr2+2)*(nz2+2)'],
+]:
+  """Materializes the (linear) gszrjax solve as a pair of dense operators.
+
+  gszrjax (with dz=0) is a linear map from (boundary_conditions,
+  filament_currents) to the flux map. On accelerators the cyclic-reduction
+  algorithm in gszrjax executes hundreds of tiny sequential kernels, while
+  applying the materialized operator is a single matmul. The operators are
+  built by pushing basis vectors through gszrjax, so they represent exactly
+  the same linear map (applying them differs from gszrjax only by
+  floating-point summation order).
+
+  Returns:
+    bc_op: operator applied as bc @ bc_op.
+    iy_op: operator applied as iy.flatten() @ iy_op.
+  """
+  nb = 2 * (nz2 + 2 + nr2)
+  ny = nr2 * nz2
+
+  def solve(bc, iy_flat):
+    return gszrjax(bc, iy_flat.reshape(nr2, nz2), cx, cq, cr, cs, ci, co, 0.0)
+
+  bc_op = jax.vmap(lambda b: solve(b, jnp.zeros(ny)))(jnp.eye(nb))
+  iy_op = jax.vmap(lambda y: solve(jnp.zeros(nb), y))(jnp.eye(ny))
+  return bc_op.reshape(nb, -1), iy_op.reshape(ny, -1)
+
+
+def apply_gszr_operator(
+    boundary_conditions: jt.Float[jt.Array, '2*nz2+2*nr2+4'],
+    filament_currents: jt.Float[jt.Array, 'nr2 nz2'],
+    bc_op: jt.Float[jt.Array, '2*nz2+2*nr2+4 nx'],
+    iy_op: jt.Float[jt.Array, 'nr2*nz2 nx'],
+    dz: jt.Float[jt.Array, ''],
+) -> jt.Float[jt.Array, 'nr2+2 nz2+2']:
+  """Applies the operators from `gszr_operator`, including the dz shift."""
+  nr2, nz2 = filament_currents.shape
+  fx = boundary_conditions @ bc_op + filament_currents.reshape(-1) @ iy_op
+  fx = fx.reshape(nr2 + 2, nz2 + 2)
+  return _dz_shift(fx, dz)
+
+
+def _dz_shift(
+    fx: jt.Float[jt.Array, 'nr nz'], dz: jt.Float[jt.Array, '']
+) -> jt.Float[jt.Array, 'nr nz']:
+  """Shift solution using dz (identical to the tail of gszrjax/gszrmex)."""
+  nz = fx.shape[1]
+  fx_forward = jnp.concatenate([fx[:, 1:], fx[:, -1:]], axis=1)
+  fx_backward = jnp.concatenate([fx[:, :1], fx[:, :-1]], axis=1)
+  scaling_vector = jnp.pad(
+      jnp.full((nz - 2,), 0.5 * dz),
+      (1, 1),
+      constant_values=dz,
+  )
+  return fx + (fx_forward - fx_backward) * scaling_vector[None, :]
+
+
 def _initialise_grid(
     boundary_conditions: jt.Float[jt.Array, '2*nz2+2*nr2+4'],
     filament_currents: jt.Float[jt.Array, 'nr2 nz2'],

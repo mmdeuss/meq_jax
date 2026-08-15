@@ -147,17 +147,26 @@ def meqFx(
       # Add external currents on computational grid
       Iy = Iy + Iyie
 
-    Fx = gszr.gszrjax(
-        boundary_conditions=Fb,
-        filament_currents=Iy,
-        cx=L.cx,
-        cq=L.cq,
-        cr=L.cr,
-        cs=L.cs,
-        ci=L.ci,
-        co=L.co,
-        dz=L.idzx * dz[0],
-    )
+    if L.gszr_iy_op is not None:
+      Fx = gszr.apply_gszr_operator(
+          boundary_conditions=Fb,
+          filament_currents=Iy,
+          bc_op=L.gszr_bc_op,
+          iy_op=L.gszr_iy_op,
+          dz=L.idzx * dz[0],
+      )
+    else:
+      Fx = gszr.gszrjax(
+          boundary_conditions=Fb,
+          filament_currents=Iy,
+          cx=L.cx,
+          cq=L.cq,
+          cr=L.cr,
+          cs=L.cs,
+          ci=L.ci,
+          co=L.co,
+          dz=L.idzx * dz[0],
+      )
   elif L.P.gsxe == 3:
     # Direct calculation from Green's functions
     assert L.Mxy is not None
@@ -184,17 +193,26 @@ def meqFx(
     Iy = IyD[iD]
     if L.P.gsxe < 3:
       Fb = meqfbp.meqfbp(Iy, L, L.P.ilackner)
-      Fx = gszr.gszrjax(
-          boundary_conditions=Fb,
-          filament_currents=Iy,
-          cx=L.cx,
-          cq=L.cq,
-          cr=L.cr,
-          cs=L.cs,
-          ci=L.ci,
-          co=L.co,
-          dz=L.idzx * dz[iD],
-      )
+      if L.gszr_iy_op is not None:
+        Fx = gszr.apply_gszr_operator(
+            boundary_conditions=Fb,
+            filament_currents=Iy,
+            bc_op=L.gszr_bc_op,
+            iy_op=L.gszr_iy_op,
+            dz=L.idzx * dz[iD],
+        )
+      else:
+        Fx = gszr.gszrjax(
+            boundary_conditions=Fb,
+            filament_currents=Iy,
+            cx=L.cx,
+            cq=L.cq,
+            cr=L.cr,
+            cs=L.cs,
+            ci=L.ci,
+            co=L.co,
+            dz=L.idzx * dz[iD],
+        )
     else:
       # New flux from this IyD
       FxD = (Iy @ L.Mxy).reshape(L.nrx, L.nzx)

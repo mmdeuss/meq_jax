@@ -237,7 +237,8 @@ def _error_cond(residual: jax.Array, coarse_tol: float, tol: float):
 
 
 def _residual_scalar(x):
-  return jnp.mean(jnp.abs(x))
+  # Matches the MEQ convergence criterion max(abs(F(x))) (see fgep.m tolF).
+  return jnp.max(jnp.abs(x))
 
 
 def _cond(
@@ -308,52 +309,44 @@ def _compute_output_delta_state(
     residual_fun: Callable[[jax.Array], jax.Array],
     delta_reduction_factor: float,
 ):
-  """Updates output delta state."""
-  delta_body_fun = functools.partial(
-      _delta_body,
-      delta_reduction_factor=delta_reduction_factor,
-  )
-  delta_cond_fun = functools.partial(
-      _delta_cond,
-      residual_fun=residual_fun,
-  )
-  output_delta_state = jax.lax.while_loop(
-      delta_cond_fun, delta_body_fun, initial_state
-  )
+  """Updates output delta state.
 
-  x_new = output_delta_state['x'] + output_delta_state['delta']
-  residual_vec_x_new = residual_fun(x_new)
-  output_delta_state |= dict(
-      residual_new=residual_vec_x_new,
-  )
+  The residual at the candidate point is computed once per candidate and
+  carried in the loop state (rather than recomputed inside the loop condition
+  and again after the loop), so each backtracking round costs exactly one
+  residual evaluation.
+  """
+  # Avoid sanity checking inside residual, since we directly
+  # afterwards check sanity on the output (NaN checking)
+  # TODO(b/312453092) consider instead sanity-checking x_new
+  with enable_errors(False):
+    initial_state = initial_state | dict(
+        residual_new=residual_fun(initial_state['x'] + initial_state['delta']),
+    )
+
+    delta_body_fun = functools.partial(
+        _delta_body,
+        residual_fun=residual_fun,
+        delta_reduction_factor=delta_reduction_factor,
+    )
+    output_delta_state = jax.lax.while_loop(
+        _delta_cond, delta_body_fun, initial_state
+    )
   return output_delta_state
 
 
-def _delta_cond(
-    delta_state: dict[str, jax.Array],
-    residual_fun: Callable[[jax.Array], jax.Array],
-) -> bool:
+def _delta_cond(delta_state: dict[str, jax.Array]) -> bool:
   """Check if delta obtained from Newton step is valid.
 
   Args:
     delta_state: see `delta_body`.
-    residual_fun: Residual function.
 
   Returns:
     True if the new value of `x` causes any NaNs or has increased the residual
     relative to the old value of `x`.
   """
-  x_old = delta_state['x']
-  x_new = x_old + delta_state['delta']
-  residual_vec_x_old = delta_state['residual_old']
-  residual_scalar_x_old = _residual_scalar(residual_vec_x_old)
-  # Avoid sanity checking inside residual, since we directly
-  # afterwards check sanity on the output (NaN checking)
-  # TODO(b/312453092) consider instead sanity-checking x_new
-  with enable_errors(False):
-    residual_vec_x_new = residual_fun(x_new)
-    residual_scalar_x_new = _residual_scalar(residual_vec_x_new)
-    delta_state['residual_new'] = residual_vec_x_new
+  residual_scalar_x_old = _residual_scalar(delta_state['residual_old'])
+  residual_scalar_x_new = _residual_scalar(delta_state['residual_new'])
   return jnp.bool_(
       jnp.logical_and(
           jnp.max(jnp.abs(delta_state['delta'])) > MIN_DELTA,
@@ -367,11 +360,14 @@ def _delta_cond(
 
 def _delta_body(
     input_delta_state: dict[str, jax.Array],
+    residual_fun: Callable[[jax.Array], jax.Array],
     delta_reduction_factor: float,
 ) -> dict[str, jax.Array]:
   """Reduces step size for this Newton iteration."""
+  delta = input_delta_state['delta'] * delta_reduction_factor
   return input_delta_state | dict(
-      delta=input_delta_state['delta'] * delta_reduction_factor,
+      delta=delta,
       tau=jnp.array(input_delta_state['tau'][...], dtype=get_dtype())
       * delta_reduction_factor,
+      residual_new=residual_fun(input_delta_state['x'] + delta),
   )

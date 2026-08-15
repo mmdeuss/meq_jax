@@ -59,12 +59,12 @@ def meqcde(
   """
   assert L.nD is not None
   assert L.nD == 1, 'Multi-domain CDEs are not supported in Python.'
-  assert LX.Rp is not None
-  assert LX.Ini is not None
 
   dt = LX.t - LY.t
   idt = jax.lax.cond(dt == 0, lambda: 0.0, lambda: 1.0 / dt)
   if cdeconc:
+    assert LX.Rp is not None
+    assert LX.Ini is not None
     results = [
         meqcdefun.meqcdefun()[cde_data.fun_name](
             L,

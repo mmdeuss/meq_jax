@@ -111,6 +111,17 @@ def meqpostq(L: types.StaticData, LY: types.OutputData):
     # Update raQ for the current domain
     current_ra = jnp.concatenate([jnp.array([0]), aq_[:, icr]])
     raQ_ = current_ra / current_ra[-1]
+    # In MATLAB, raQ(end) = x/x is exactly 1.0 (IEEE division) for finite
+    # nonzero x. XLA on CPU may rewrite the division as a
+    # multiply-by-reciprocal, giving e.g. 0.9999999999999999. locQ/locS/locR
+    # rely on exact equality with the requested value 1.0 (e.g. L.P.raS(end))
+    # to locate the boundary surface, so pin the endpoint to exactly 1.0 in
+    # that case. For x = 0/inf/NaN (e.g. unused mantle domains where aq is
+    # NaN), keep the IEEE result (NaN) as MATLAB does.
+    last = current_ra[-1]
+    raQ_ = raQ_.at[-1].set(
+        jnp.where(jnp.isfinite(last) & (last != 0.0), 1.0, raQ_[-1])
+    )
 
     # Find qmin for the domain using our helper function
     raqmin_iD, iqmin_val = minq.minQ(raQ_, iqQ_, -sq, n=1)

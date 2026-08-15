@@ -236,7 +236,7 @@ class MeqpostTest(parameterized.TestCase):
     L = types.StaticData(
         P=P,
         G=G,
-        Bfp=Bfp,
+        bfp=Bfp,
         ##### Arguments from meqpostq_test.py
         M1q=_process_2D('L.M1q;'),
         M2q=_process_2D('L.M2q;'),
@@ -435,13 +435,18 @@ class MeqpostTest(parameterized.TestCase):
 
             if k == 'qA':
               np.testing.assert_allclose(
-                  v_matlab, v_jax[: LY_jax.nA], rtol=1e-8, atol=1e-8
+                  v_matlab, v_jax[: LY_jax.nA], rtol=1e-8, atol=1e-8,
+                  err_msg=f'field {k}',
               )
               continue
 
             if k in ['PpQg', 'PpQ', 'PQ']:
               # Large values being multipled in multi-domains
               atol = 1e-4
+            elif k == 'jtorQ':
+              # jtorQ = 2*pi*r0*(PpQ + TTpQ*Q2Q/mu0) is linear in PpQ, so it
+              # inherits the multi-domain noise above amplified by 2*pi*r0.
+              atol = 1e-3
             else:
               atol = 1e-8
             np.testing.assert_allclose(
@@ -449,10 +454,12 @@ class MeqpostTest(parameterized.TestCase):
                 v_jax[np.isfinite(v_matlab)],
                 rtol=1e-8,
                 atol=atol,
+                err_msg=f'field {k}',
             )
           else:
             np.testing.assert_allclose(
-                float(v_matlab.item()), float(v_jax), rtol=1e-8, atol=1e-8
+                float(v_matlab.item()), float(v_jax), rtol=1e-8, atol=1e-8,
+                err_msg=f'field {k}',
             )
 
 if __name__ == '__main__':

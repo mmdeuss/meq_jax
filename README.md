@@ -41,6 +41,50 @@ current diffusion equations. If a CDE is desired for your use case, you will
 need to set up MEQ directly through calls to Octave instead of using the MEQPy
 interface.
 
+## Performance
+
+MEQ-JAX has been optimized so that a single FGE simulation step on a typical
+`'ana'` test tokamak runs several times faster than Octave MEQ on CPU, and
+supports efficient batched simulation on GPU via `jax.vmap`. A few knobs
+matter for getting full performance:
+
+*   **Normalize the initial state.** A state freshly initialized from Octave
+    has a different pytree structure than the state produced by an environment
+    step, which makes `jax.jit` compile the step function twice. Call
+    `utils.normalize_state(state, static, lx, agconc, cdeconc)` once after
+    `utils.init_from_octave` so only one compilation is needed.
+*   **Enable the persistent compilation cache**, so repeated runs skip XLA
+    compilation entirely:
+
+    ```python
+    jax.config.update('jax_compilation_cache_dir', '~/.cache/jax_meq')
+    jax.config.update('jax_persistent_cache_min_compile_time_secs', 0.5)
+    ```
+*   **Donate the state buffers** with
+    `jax.jit(..., donate_argnames='state')` to avoid copying large state
+    fields (like the preconditioner `Prec`, unused in JAX) on every step.
+*   **Poisson solve as a matmul.** `utils.init_from_octave` materializes the
+    (linear) `gszr` Poisson solve as a pair of dense operators by default
+    (`precompute_gszr_operator=True`). This is dramatically faster on GPU
+    (the sequential cyclic-reduction algorithm launches hundreds of tiny
+    kernels) and agrees with `gszrjax` up to floating-point summation order
+    (~1e-15 relative).
+*   **Clamp `dimw`.** MEQ defaults to tracking up to `L.dimw = 200` flux
+    extrema, and the domain-identification loop in `meqpdom` runs `2*dimw`
+    sequential steps per residual evaluation. Typical equilibria have fewer
+    than 10 extrema; passing `clamp_dimw=32` to `utils.init_from_octave`
+    gives bit-identical results (as long as the bound is not exceeded) and is
+    substantially faster, especially on accelerators.
+*   **Batch on GPU.** A single simulation is too small to saturate a GPU
+    (per-step time is dominated by kernel-launch overhead), but
+    `jax.vmap`-ing the environment step over a batch of states amortizes it:
+    on one H100, per-simulation step time drops by more than an order of
+    magnitude at batch size 256 relative to batch size 1.
+
+`num_steps > 1` (control timestep larger than the simulator timestep) is
+handled with `jax.lax.scan`, so compile time does not grow with the number of
+inner simulator steps.
+
 ## Sharp edges
 
 Note that, while we sought to have as broad test coverage as possible, many

@@ -19,6 +19,54 @@ import jaxtyping as jt
 
 
 # pylint: disable=invalid-name
+def meqIyJac_factored(
+    lxy: jt.Bool[jt.Array, 'lxy1 lxy2'],
+    ag: jt.Float[jt.Array, 'ng'],
+    mask: jt.Bool[jt.Array, 'ny'],
+    dTygdFy: jt.Float[jt.Array, 'ng ny'],
+    dTygdF0: jt.Float[jt.Array, 'nD ng ng'],
+    dTygdF1: jt.Float[jt.Array, 'nD ng ng'],
+) -> tuple[
+    jt.Float[jt.Array, 'ny'],
+    jt.Integer[jt.Array, 'ny'],
+    jt.Float[jt.Array, 'nD ny'],
+    jt.Float[jt.Array, 'nD ny'],
+]:
+  """Factored form of the Iy Jacobian.
+
+  The full Jacobian assembled by `meqIyJac` is
+    dIypdFx = E + dF0dFx @ dIypdF0 + dF1dFx @ dIypdF1
+  where E is zero except for one entry per grid column,
+  E[jj[y], y] = dIypdFy[y] * mask[y], with jj the positions of the
+  computational (y) grid inside the full (x) grid. Downstream products with
+  dIypdFx can therefore be computed with column gathers and small rank-nD
+  matmuls instead of dense (nx, ny) matmuls. This function returns the
+  factors; see fgeF for how they are contracted.
+
+  Args:
+    lxy: L.lxy parameter from matlab (mask of y points within x grid).
+    ag: ag vector.
+    mask: Mask for plasma points (in y space).
+    dTygdFy: d(T*g)/dFy from bfct derivative.
+    dTygdF0: d(T*g)/dF0 from bfct derivative.
+    dTygdF1: d(T*g)/dF1 from bfct derivative.
+
+  Returns:
+    dIypdFy_masked: diagonal values of E in y space (already masked).
+    jj: x-space row index of each y point (positions of lxy).
+    dIypdF0, dIypdF1: the rank-nD factors.
+  """
+  dIypdFy = jnp.einsum('ij,i->j', dTygdFy, ag)
+  dIypdF0 = jnp.einsum('ijk,j->ik', dTygdF0, ag)
+  dIypdF1 = jnp.einsum('ijk,j->ik', dTygdF1, ag)
+
+  ny = dTygdFy.shape[1]
+  # lxy has exactly ny nonzero entries by construction, so this is exact.
+  jj = jnp.nonzero(lxy.flatten(), size=ny)[0]
+  return dIypdFy * mask, jj, dIypdF0, dIypdF1
+
+
+# pylint: disable=invalid-name
 def meqIyJac(
     lxy: jt.Bool[jt.Array, 'lxy1 lxy2'],
     ag: jt.Float[jt.Array, 'ng'],

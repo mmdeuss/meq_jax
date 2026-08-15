@@ -517,7 +517,10 @@ class FgeFTest(parameterized.TestCase):
     agconc = []
     for fn_name, iD, ii in zip(fun_names, iDs, iis):
       agdata = types.ConcData(
-          fun_name=fn_name, domain_id=int(iD), lx_name=fn_name, index=int(ii)
+          fun_name=fn_name,
+          domain_id=int(np.asarray(iD).squeeze().item()),
+          lx_name=fn_name,
+          index=int(np.asarray(ii).squeeze().item()),
       )
       agconc.append(agdata)
 

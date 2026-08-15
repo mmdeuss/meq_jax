@@ -40,17 +40,26 @@ def meqfbp(
   match ilackner:
     case 1:
       nr2, nz2 = filament_currents.shape
-      grid = gszr.gszrjax(
-          jnp.zeros(2 * (nr2 + nz2 + 2)),
-          filament_currents,
-          static_data.cx,
-          static_data.cq,
-          static_data.cr,
-          static_data.cs,
-          static_data.ci,
-          static_data.co,
-          0,
-      )
+      if static_data.gszr_iy_op is not None:
+        grid = gszr.apply_gszr_operator(
+            jnp.zeros(2 * (nr2 + nz2 + 2)),
+            filament_currents,
+            static_data.gszr_bc_op,
+            static_data.gszr_iy_op,
+            0,
+        )
+      else:
+        grid = gszr.gszrjax(
+            jnp.zeros(2 * (nr2 + nz2 + 2)),
+            filament_currents,
+            static_data.cx,
+            static_data.cq,
+            static_data.cr,
+            static_data.cs,
+            static_data.ci,
+            static_data.co,
+            0,
+        )
       return nfdb.nfdb(grid) @ static_data.Tbc
     case _:
       return filament_currents.flatten() @ static_data.Mby

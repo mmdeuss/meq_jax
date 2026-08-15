@@ -318,18 +318,39 @@ def bfct11(
     F0 = F0[0]
     F1 = F1[0]
 
-  def f(fx, fa, fb):
-    Tyg, _, ITyg, _ = bfct1(
-        fx, fa, fb, Opy, ry, iry, types.BfpData(nP=nP, nT=nT)
-    )
-    return Tyg, ITyg
+  # Tyg[k, y] depends on Fx only through FxA[y] = Fx[y] - F0 (elementwise) and
+  # on the scalar FBA = F1 - F0, so the Jacobian w.r.t. the flux map is
+  # diagonal and the Jacobians w.r.t. F0/F1 follow from the same two
+  # elementwise derivatives by the chain rule:
+  #   dTyg/dFy = dTyg/dFxA,  dTyg/dF0 = -dTyg/dFxA - dTyg/dFBA,
+  #   dTyg/dF1 = dTyg/dFBA.
+  # Two forward-mode passes over the grid replace a full jacrev, which would
+  # materialize (and then sum away) an [ng, ny, nry, nzy] array.
+  FBA = F1 - F0
+  FxA = Fx[1:-1, 1:-1] - F0
 
-  (dTygdFy, dTygdF0, dTygdF1), (_, dITygdF0, dITygdF1) = jax.jacrev(
-      f, argnums=(0, 1, 2)
-  )(Fx, F0, F1)
+  def f_pt(fxa, fba):
+    return bfab.f(fxa, fba, nP, nT)
 
-  # dTygdFy is [nP+nT, nry * nzy, nry, nzy] so we sum over the last two dims
-  return dTygdFy.sum(axis=(-1, -2)), dTygdF0, dTygdF1, dITygdF0, dITygdF1
+  def derivs(fxa):
+    _, (dg_dfxa, dIg_dfxa) = jax.jvp(f_pt, (fxa, FBA), (1.0, 0.0))
+    _, (dg_dfba, dIg_dfba) = jax.jvp(f_pt, (fxa, FBA), (0.0, 1.0))
+    return dg_dfxa, dIg_dfxa, dg_dfba, dIg_dfba
+
+  dg_dfxa, dIg_dfxa, dg_dfba, dIg_dfba = jax.vmap(jax.vmap(derivs))(FxA)
+
+  fPg, fTg = bfab.fPg(nP, nT)
+  fac = jnp.einsum('r,k->kr', ry, fPg) + jnp.einsum('r,k->kr', iry, fTg)
+
+  def apply_fac(d):
+    return jnp.einsum('rzk,kr,rz->krz', d, fac, Opy).reshape(nP + nT, -1)
+
+  dTygdFy = apply_fac(dg_dfxa)
+  dTygdF0 = apply_fac(-dg_dfxa - dg_dfba)
+  dTygdF1 = apply_fac(dg_dfba)
+  dITygdF0 = apply_fac(-dIg_dfxa - dIg_dfba)
+  dITygdF1 = apply_fac(dIg_dfba)
+  return dTygdFy, dTygdF0, dTygdF1, dITygdF0, dITygdF1
 
 
 def bfct15(

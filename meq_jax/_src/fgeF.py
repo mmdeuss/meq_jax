@@ -25,6 +25,7 @@ from typing import Any, List
 import jax
 import jax.numpy as jnp
 import jaxtyping as jt
+import numpy as np
 
 from meq_jax._src import asxy
 from meq_jax._src import asxycs
@@ -523,7 +524,8 @@ def fgeF(
   dITygdF1 = None
   dIydIy = None
   dIydIe = None
-  dIypdFx = None
+  dIypdFy_m = None
+  materialize_dIypdFx = None
 
   if dojacstat:
     # Option 1
@@ -548,20 +550,31 @@ def fgeF(
       for iD in range(active_domains):
         mask = jnp.logical_or(mask, (Opy.flatten() == iD + 1))
 
-      # Derivatives of Iyp
-      # In the Matlab version, dIypdFx may not be computed and the flag
-      # hasdIypdFx is used to indicate this. Here, it is always computed, 
-      # and we can skip the flag.
-      dIypdFy, dIypdF0, dIypdF1, dIypdFx = meqIyJac.meqIyJac(
+      # Derivatives of Iyp, in factored form:
+      #   dIypdFx = E + dF0dFx @ dIypdF0 + dF1dFx @ dIypdF1
+      # with E[jj[y], y] = dIypdFy_m[y]. Contracting the factors directly
+      # avoids materializing the dense (nx, ny) dIypdFx and turns the
+      # (·, nx) @ (nx, ny) products into a column gather plus rank-nD updates.
+      dIypdFy_m, jj, dIypdF0, dIypdF1 = meqIyJac.meqIyJac_factored(
           lxy=L.lxy,
           ag=ag,
           mask=mask,
           dTygdFy=dTygdFy,
           dTygdF0=dTygdF0,
           dTygdF1=dTygdF1,
-          dF0dFx=dF0dFx,
-          dF1dFx=dF1dFx,
       )
+
+      def contract_dIypdFx_left(M):
+        """M @ dIypdFx for M with trailing dimension nx."""
+        return (
+            M[:, jj] * dIypdFy_m[None, :]
+            + (M @ dF0dFx) @ dIypdF0
+            + (M @ dF1dFx) @ dIypdF1
+        )
+
+      def materialize_dIypdFx():
+        E = jnp.zeros((L.nx, L.ny)).at[jj, jnp.arange(L.ny)].set(dIypdFy_m)
+        return E + dF0dFx @ dIypdF0 + dF1dFx @ dIypdF1
 
       if xHasIy:
         # Assemble dIydIy/dIydIe when needed
@@ -572,11 +585,11 @@ def fgeF(
 
         # dIydIy
         if hasdIydIy:
-          dIydIy = L.Mxy @ dIypdFx
+          dIydIy = contract_dIypdFx_left(L.Mxy)
 
         # dIydIe
         if hasdIydIe:
-          dIydIe = L.Mxe @ dIypdFx
+          dIydIe = contract_dIypdFx_left(L.Mxe)
 
     # Option 2
     elif assign_LXIy:
@@ -823,6 +836,30 @@ def fgeF(
   res = jnp.concatenate(res)
 
   ###### Assemble Jx jacobian ######
+
+  def _set_block(M, rows0, cols0, block):
+    """M.at[rows0[:, None], cols0[None, :]].set(block), faster when possible.
+
+    The index vectors are trace-time constants (they come from L.ind, which
+    is closed over by jit) and are contiguous ranges for FGE configurations,
+    in which case the general scatter can be replaced by a (much cheaper)
+    dynamic_update_slice. Falls back to scatter for traced or non-contiguous
+    indices.
+    """
+    try:
+      rows_np = np.asarray(rows0)
+      cols_np = np.asarray(cols0)
+    except (jax.errors.TracerArrayConversionError, TypeError):
+      return M.at[rows0[:, None], cols0[None, :]].set(block)
+    if (rows_np.size > 0 and cols_np.size > 0
+        and np.array_equal(rows_np, np.arange(rows_np[0], rows_np[0]
+                                              + rows_np.size))
+        and np.array_equal(cols_np, np.arange(cols_np[0], cols_np[0]
+                                              + cols_np.size))):
+      return jax.lax.dynamic_update_slice(
+          M, block, (int(rows_np[0]), int(cols_np[0])))
+    return M.at[rows0[:, None], cols0[None, :]].set(block)
+
   if opts.dojacx and not assign_LXIy:
     assert Jx is not None
 
@@ -832,23 +869,27 @@ def fgeF(
       # Subtract identity matrix to get jacobian of residual
       dIydIy -= jnp.eye(L.ny)
 
-      Jx = Jx.at[L.ind.ixGS[:, None] - 1, L.ind.irGS[None, :] - 1].set(dIydIy)
+      Jx = _set_block(Jx, L.ind.ixGS - 1, L.ind.irGS - 1, dIydIy)
 
-      Jx = Jx.at[
-          L.ind.ixg[:, None] - 1,
-          L.ind.irGS[None, :] - 1,
-      ].set(xscalg[:, None] * resscalGS[None] * Tyg)
+      Jx = _set_block(
+          Jx, L.ind.ixg - 1, L.ind.irGS - 1,
+          xscalg[:, None] * resscalGS[None] * Tyg)
 
       if L.isEvolutive:
-        Jx = Jx.at[ixe[None, :], L.ind.irGS[:, None] - 1].set(
-            (xscale[:, None] * resscalGS[None] * dIydIe).T
-        )
+        Jx = _set_block(
+            Jx, ixe, L.ind.irGS - 1,
+            xscale[:, None] * resscalGS[None] * dIydIe)
 
     elif rHasFx:  # 'all-nl-Fx'
-      # Compute dFxdFx from dIydFx
-      assert dIypdFx is not None
+      # Compute dFxdFx from dIydFx, contracting the factored dIypdFx:
+      # (E @ Mxy)[jj[y], :] = dIypdFy_m[y] * Mxy[y, :], plus rank-nD updates.
+      assert dIypdFy_m is not None
 
-      dFxdFx = dIypdFx @ L.Mxy
+      dFxdFx = (
+          jnp.zeros((L.nx, L.nx)).at[jj].set(dIypdFy_m[:, None] * L.Mxy)
+          + dF0dFx @ (dIypdF0 @ L.Mxy)
+          + dF1dFx @ (dIypdF1 @ L.Mxy)
+      )
 
       dFxdag = Tyg @ L.Mxy
 
@@ -863,8 +904,8 @@ def fgeF(
     else:  # Newton-GS
       # NOTE: code not tested
 
-      assert dIypdFx is not None
-      dIy_dFx = dIypdFx
+      assert materialize_dIypdFx is not None
+      dIy_dFx = materialize_dIypdFx()
 
       # compute reference boundary jacobians with Mby (for Rb = Fb - Fb_ref)
       # keep the Iy Jacobians in sparse format although Mby is dense
@@ -889,23 +930,21 @@ def fgeF(
     # ag residual
     if xHasIy:
       # Assemble full residual jacobian w.r.t. Iy
-      Jx = Jx.at[L.ind.ixGS[:, None] - 1, L.ind.irC[None, :] - 1].set(
-          xscalGS[:, None] * (L.Mxy @ dresdFx.T)
-      )
+      Jx = _set_block(
+          Jx, L.ind.ixGS - 1, L.ind.irC - 1,
+          xscalGS[:, None] * (L.Mxy @ dresdFx.T))
       if L.isEvolutive:
         # Assemble full residual jacobian w.r.t. Ie
-        Jx = Jx.at[ixe[:, None], L.ind.irC[None, :] - 1].set(
-            xscale[:, None] * (L.Mxe @ dresdFx.T)
-        )
+        Jx = _set_block(
+            Jx, ixe, L.ind.irC - 1,
+            xscale[:, None] * (L.Mxe @ dresdFx.T))
     else:
-      Jx = Jx.at[L.ind.ixGS[:, None] - 1, L.ind.irC[None, :] - 1].set(
-          xscalGS[:, None] * dresdFx.T
-      )
+      Jx = _set_block(
+          Jx, L.ind.ixGS - 1, L.ind.irC - 1, xscalGS[:, None] * dresdFx.T)
 
     # Residuals are already rescaled
-    Jx = Jx.at[L.ind.ixg[:, None] - 1, L.ind.irC[None, :] - 1].set(
-        xscalg[:, None] * dresdag.T
-    )
+    Jx = _set_block(
+        Jx, L.ind.ixg - 1, L.ind.irC - 1, xscalg[:, None] * dresdag.T)
 
     # CDE residual
     if L.np > 0:
@@ -936,7 +975,20 @@ def fgeF(
     # Circuit equations
     if L.isEvolutive:
       irDe = ire - (L.nN - L.nrD)
-      Jx = Jx.at[:, ire].add(idt * L.Jxdot[:, irDe])
+      update = idt * L.Jxdot[:, irDe]
+      try:
+        ire_np = np.asarray(ire)
+        contiguous = ire_np.size > 0 and np.array_equal(
+            ire_np, np.arange(ire_np[0], ire_np[0] + ire_np.size))
+      except (jax.errors.TracerArrayConversionError, TypeError):
+        contiguous = False
+      if contiguous:
+        c0 = int(ire_np[0])
+        block = jax.lax.dynamic_slice(
+            Jx, (0, c0), (Jx.shape[0], ire_np.size)) + update
+        Jx = jax.lax.dynamic_update_slice(Jx, block, (0, c0))
+      else:
+        Jx = Jx.at[:, ire].add(update)
 
   ###### Ju ######
   if opts.dojacu and not assign_LXIy:

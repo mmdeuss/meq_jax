@@ -117,14 +117,15 @@ def fgetk_implicit(
     assert jx is not None
     return jx.T
   jac = jac_fun
+  tol = l.P.tolF if l.P.tolF is not None else 1e-10
   solve_f = (  # TODO(pfau): jit this once we speed it up
       functools.partial(
           jax_root_finding.root_newton_raphson,
           fun=fun,
           custom_jac=jac,
           use_jax_custom_root=False,
-          tol=1e-10,  # l.P.tolF,
-          log_iterations=True,
+          tol=tol,
+          log_iterations=False,
           )
       )
   xnlt, metadata = solve_f(x0=xnl0)

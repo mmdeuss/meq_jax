@@ -214,6 +214,12 @@ class StaticData:
   cs: chex.Array | None = None  # [nz2, nr2]
   ci: float | None = field(default=None, metadata=dict(static=True))
   co: float | None = field(default=None, metadata=dict(static=True))
+  # Optional dense operators materializing the gszr Poisson solve
+  # (see gszr.gszr_operator). When set, meqfx/meqfbp apply the solve as a
+  # matmul, which is much faster on accelerators than the sequential
+  # cyclic-reduction algorithm in gszrjax.
+  gszr_bc_op: chex.Array | None = None  # [2(nz2+nr2+2), nrx*nzx]
+  gszr_iy_op: chex.Array | None = None  # [nry*nzy, nrx*nzx]
   nx: int | None = field(default=None, metadata=dict(static=True))
   na: int | None = field(default=None, metadata=dict(static=True))
   nrx: int | None = field(default=None, metadata=dict(static=True))

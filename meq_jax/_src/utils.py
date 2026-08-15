@@ -146,13 +146,36 @@ def _transpose_element(val):
 
 
 def init_from_octave(meq_instance: meqpy_impl.MeqPy,
-                     ly: oct2py.Struct) -> tuple[types.StateData,
-                                                 types.StaticData,
-                                                 types.InputData,
-                                                 int,
-                                                 list[types.ConcData],
-                                                 list[types.ConcData]]:
-  """Initializes the state from an oct2py instance and an octave LY."""
+                     ly: oct2py.Struct,
+                     precompute_gszr_operator: bool = True,
+                     clamp_dimw: int | None = None,
+                     ) -> tuple[types.StateData,
+                                types.StaticData,
+                                types.InputData,
+                                int,
+                                list[types.ConcData],
+                                list[types.ConcData]]:
+  """Initializes the state from an oct2py instance and an octave LY.
+
+  Args:
+    meq_instance: The MeqPy instance to initialize from.
+    ly: The LY struct from the octave instance.
+    precompute_gszr_operator: If True, materialize the (linear) gszr Poisson
+      solve as dense operators (see gszr.gszr_operator). This makes the solve
+      a single matmul, which is dramatically faster on accelerators; results
+      agree with the sequential gszrjax algorithm up to floating-point
+      summation order.
+    clamp_dimw: If set, clamp L.dimw (the maximum number of flux extrema
+      tracked by asxy/meqpdom; 200 by default in MEQ) to this value. The
+      domain-identification loop in meqpdom runs 2*dimw sequential steps, so
+      a smaller bound is substantially faster (especially on accelerators).
+      Results are bit-identical as long as the actual number of detected
+      extrema stays below the bound (typical equilibria have < 10); if it is
+      exceeded, asxy reports failure via its stat output, as in MEQ.
+
+  Returns:
+    A (state, static, lx, num_steps, agconc, cdeconc) tuple.
+  """
   jax_output = struct_to_dataclass(ly, types.OutputData)
   state = types.StateData(
       LYt=jax_output,
@@ -173,6 +196,15 @@ def init_from_octave(meq_instance: meqpy_impl.MeqPy,
   meq_instance._strip_function_handles('Lfge', 'Lfge_safe')  # pylint: disable=protected-access
   l_struct = meq_instance.octave_eval('Lfge_safe;', nout=1)
   static = struct_to_dataclass(l_struct, types.StaticData)
+  if clamp_dimw is not None and static.dimw is not None:
+    static = dataclasses.replace(static, dimw=min(static.dimw, clamp_dimw))
+  if precompute_gszr_operator and static.cx is not None:
+    from meq_jax._src import gszr  # pylint: disable=g-import-not-at-top
+
+    bc_op, iy_op = gszr.gszr_operator(
+        static.cx, static.cq, static.cr, static.cs, static.ci, static.co,
+        nr2=static.nry, nz2=static.nzy)
+    static = dataclasses.replace(static, gszr_bc_op=bc_op, gszr_iy_op=iy_op)
   lx_struct = meq_instance.octave_eval('LXfge_working;', nout=1)
   lx = struct_to_dataclass(lx_struct, types.InputData)
   num_steps = int(meq_instance.octave_eval('num_steps;', nout=1).item())
@@ -205,6 +237,84 @@ def init_from_octave(meq_instance: meqpy_impl.MeqPy,
         )
     )
   return state, static, lx, num_steps, agconc, cdeconc
+
+
+# Fields that are padded with -inf up to a static maximum size (L.dimw etc.)
+# in the JAX implementation.
+_INF_PADDED_FIELDS = frozenset([
+    'FA', 'rA', 'zA', 'FB', 'rB', 'zB', 'FX', 'rX', 'zX',
+    'dr2FA', 'dz2FA', 'drzFA', 'dr2FX', 'dz2FX', 'drzFX',
+])
+
+
+def _normalize_leaf(name: str, val: Any, target: Any) -> Any:
+  """Converts one field value to the target shape/dtype."""
+  if target is None:
+    return None
+  if not isinstance(target, (jax.ShapeDtypeStruct, jnp.ndarray, np.ndarray)):
+    return val  # Non-array field (e.g. static/None): keep as is.
+  if val is None:
+    fill = -jnp.inf if name in _INF_PADDED_FIELDS else 0
+    return jnp.full(target.shape, fill, dtype=target.dtype)
+  val = jnp.asarray(val)
+  if val.shape == target.shape:
+    return val.astype(target.dtype)
+  if val.size == np.prod(target.shape):
+    return val.reshape(target.shape).astype(target.dtype)
+  if val.size > np.prod(target.shape):
+    raise ValueError(
+        f'Cannot normalize field {name}: value of shape {val.shape} is larger'
+        f' than target {target.shape}.')
+  if len(target.shape) != 1:
+    raise ValueError(
+        f'Cannot normalize field {name}: cannot pad shape {val.shape} to'
+        f' {target.shape}.')
+  fill = -jnp.inf if name in _INF_PADDED_FIELDS else 0
+  out = jnp.full(target.shape, fill, dtype=target.dtype)
+  return out.at[: val.size].set(val.reshape(-1).astype(target.dtype))
+
+
+def _normalize_dataclass(value: Any, target: Any) -> Any:
+  """Recursively normalizes dataclass fields to the target structure."""
+  updates = {}
+  for field in dataclasses.fields(value):
+    v = getattr(value, field.name)
+    t = getattr(target, field.name)
+    if dataclasses.is_dataclass(v) and dataclasses.is_dataclass(t):
+      updates[field.name] = _normalize_dataclass(v, t)
+    else:
+      updates[field.name] = _normalize_leaf(field.name, v, t)
+  return dataclasses.replace(value, **updates)
+
+
+def normalize_state(
+    state: types.StateData,
+    static: types.StaticData,
+    lx: types.InputData,
+    agconc: list[types.ConcData] | None = None,
+    cdeconc: list[types.ConcData] | None = None,
+) -> types.StateData:
+  """Converts an Octave-initialized state to the steady-state pytree structure.
+
+  A state freshly produced by `init_from_octave` has Python scalars and
+  unpadded arrays where the state produced by an environment step has (padded)
+  JAX arrays. As a consequence, `jax.jit(fgetk_environment)` compiles twice:
+  once for the initial structure and once for the steady structure. This
+  function pads/casts the initial state to the steady structure (computed
+  abstractly with `jax.eval_shape`, i.e. without compiling anything) so only
+  one compilation is ever needed.
+  """
+  from meq_jax._src import fgetk_environment as _fgetk_env  # pylint: disable=g-import-not-at-top
+
+  assert static.G is not None and static.G.na is not None
+  voltages = jax.ShapeDtypeStruct((static.G.na,), jnp.float64)
+
+  def one_step(s, v):
+    return _fgetk_env._fgetk_step(  # pylint: disable=protected-access
+        s, v, static, lx, agconc, cdeconc, {})[0]
+
+  target = jax.eval_shape(one_step, state, voltages)
+  return _normalize_dataclass(state, target)
 
 
 def compare_octave_and_jax(

@@ -37,9 +37,11 @@ class PlasmaDomainTest(parameterized.TestCase):
 
     # Use the integrals_test function to get a circular equilibrium L and LY
     # Then follow the logic in integrals_test.test_meqintQ
+    # Note: meq/tests/integrals_test.m inherits matlab.unittest.TestCase,
+    # which Octave cannot load. We instead call the verbatim copy of the
+    # static helper meq_test.getCircularEquilibrium from the octave_compat
+    # shim (see conftest.py / octave_compat/meq_test.m).
     meqpy.octave_eval(r"""
-    testCase = integrals_test()
-
     sIp = 1
     L = fbt('ana',1,[],'pql',0.1);
 
@@ -47,7 +49,7 @@ class PlasmaDomainTest(parameterized.TestCase):
     r0 = 1.001; z0 = 0;
     FA = sIp; FB = 0;
     rBt = 1; bp=1; qA = 1.5;
-    [L,LY] = testCase.getCircularEquilibrium(L,r0,z0,FA,FB,rBt);
+    [L,LY] = meq_test.getCircularEquilibrium(L,r0,z0,FA,FB,rBt);
     LY.qA = qA;
     LY.Wk = bp*(1.5e-7*pi*L.P.r0*LY.Ip.^2);
 
