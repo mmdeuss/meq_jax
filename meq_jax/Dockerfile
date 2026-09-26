@@ -1,9 +1,7 @@
 # Dockerfile for MEQ-JAX
-# Uses an HTTPS Token for secure repository access during build.
 # To build and run:
-# 1. Get a GitLab token from https://gitlab.epfl.ch/-/user_settings/personal_access_tokens
-# 2. Build: docker build --build-arg GITLAB_TOKEN=<your_token> -t meq_jax .
-# 3. Run: docker run meq_jax
+# 1. From the repository root, build: docker build -f meq_jax/Dockerfile -t meq_jax .
+# 2. Run: docker run meq_jax
 
 FROM debian:bookworm
 
@@ -31,11 +29,10 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # 2. Download and build MEQ
-ARG GITLAB_TOKEN
 WORKDIR /app
 
-# Clone via HTTPS using the token.
-RUN git clone https://oauth2:${GITLAB_TOKEN}@gitlab.epfl.ch/spc/public/meq/meq.git meq && \
+# Clone the public MEQ repository via HTTPS.
+RUN git clone https://gitlab.epfl.ch/spc/public/meq/meq.git meq && \
     cd meq && \
     git config --global url."https://".insteadOf git:// && \
     git submodule update --init --recursive && \
@@ -60,10 +57,10 @@ ENV OMP_NUM_THREADS=1
 
 # 4. Install MEQ-JAX
 COPY . /app/meq_jax
-RUN cd /app/meq_jax && pip install -v .
+RUN cd /app/meq_jax && pip install --no-cache-dir --force-reinstall -v .
 
 # 5. Verify installation
-RUN python /app/meq_jax/examples/meq_jax_example.py
+RUN python -c "import meq_jax; import meqpy"
 
 WORKDIR /app/meq_jax
-CMD ["python", "examples/meq_jax_example.py"]
+CMD ["python", "meq_jax/examples/meq_jax_example.py"]

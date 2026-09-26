@@ -60,9 +60,13 @@ def main(argv: Sequence[str]) -> None:
       meq_instance, ly
   )
 
+  named_fgetk_environment = jax.named_call(
+      fgetk_environment.fgetk_environment,
+      name='fgetk_environment',
+  )
   jit_fgetk_environment = jax.jit(
       functools.partial(
-          fgetk_environment.fgetk_environment,
+          named_fgetk_environment,
           static=static,
           lx=lx,
           num_steps=num_steps,
@@ -83,10 +87,11 @@ def main(argv: Sequence[str]) -> None:
     LY_octave, _ = meq_instance.step_fgetk_environment(actions, {})  # pylint: disable=invalid-name
 
     # run one step of the JAX environment
-    LY_jax, _, state, _ = jit_fgetk_environment(  # pylint: disable=invalid-name
+    with jax.profiler.TraceAnnotation(f'fgetk_environment iteration {i + 1}'):
+      LY_jax, _, state, _ = jit_fgetk_environment(  # pylint: disable=invalid-name
         state=state,
         voltages=actions,
-    )
+      )
     LY_jax = utils.dataclass_to_octave_shapes(LY_jax, LY_octave)  # pylint: disable=invalid-name
 
     # compare and display

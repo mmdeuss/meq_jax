@@ -352,7 +352,15 @@ def fgeF(
   resscalc = None
   if L.isEvolutive:
     ixe = jnp.concatenate([L.ind.ixa - 1, L.ind.ixu - 1])
-    ire = jnp.concatenate([L.ind.ira - 1, L.ind.iru - 1])
+    ira = (L.ind.ira if L.ind.ira is not None
+           else jnp.array([], dtype=jnp.int32))
+    iru = (L.ind.iru if L.ind.iru is not None
+           else jnp.array([], dtype=jnp.int32))
+    ire = jnp.concatenate([ira - 1, iru - 1])
+    if ira.size or iru.size:
+      resscalc = L.resscal[ire]
+    else:
+      resscalc = jnp.ones(L.ne)
     xscale = L.xscal[ixe]
   else:
     iue = jnp.concatenate([L.ind.iua - 1, L.ind.iuu - 1])
@@ -363,9 +371,6 @@ def fgeF(
   resscalp = None
   if L.np > 0:
     resscalp = L.resscal[L.ind.irp - 1]
-  if L.isEvolutive:
-    assert ire is not None
-    resscalc = L.resscal[ire]
 
   # Extract NL unknowns
   Iy = None
