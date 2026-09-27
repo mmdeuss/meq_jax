@@ -15,6 +15,15 @@ performance optimization and we welcome anyone who wants to improve it.
 For initialization and testing, the original Matlab MEQ package is still needed.
 First, install [Octave](https://octave.org/) and then MEQ, following the
 instructions in the README for [MEQPy](https://github.com/google-deepmind/meqpy).
+
+MEQ-JAX needs **MEQ `crpptbx-release-v6.9.0` or earlier**: v6.10.0 removed
+`L.ind.ira` (upstream `32095be`), which MEQ-JAX still reads. MEQPy's
+instructions say to take the latest MEQ, so check out the tag explicitly:
+
+```
+git clone --branch crpptbx-release-v6.9.0 https://gitlab.epfl.ch/spc/public/meq/meq.git
+```
+
 Then, from inside the MEQ-JAX folder, simply run
 
 ```

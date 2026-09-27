@@ -31,8 +31,12 @@ RUN apt-get update && apt-get install -y \
 # 2. Download and build MEQ
 WORKDIR /app
 
+# MEQ v6.10.0 removed L.ind.ira (upstream 32095be), which MEQ-JAX still reads.
+# Override with: docker build --build-arg MEQ_VERSION=<tag-or-commit> ...
+ARG MEQ_VERSION=crpptbx-release-v6.9.0
+
 # Clone the public MEQ repository via HTTPS.
-RUN git clone https://gitlab.epfl.ch/spc/public/meq/meq.git meq && \
+RUN git clone --branch ${MEQ_VERSION} https://gitlab.epfl.ch/spc/public/meq/meq.git meq && \
     cd meq && \
     git config --global url."https://".insteadOf git:// && \
     git submodule update --init --recursive && \
