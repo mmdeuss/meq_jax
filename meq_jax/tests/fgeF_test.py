@@ -12,7 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for fgeF.py, based on liuNLmeas_jacobian_test.m."""
+"""Tests for fgeF.py, based on liuNLmeas_jacobian_test.m.
+
+The matrix below is also the parity scoreboard for fgeF. Every configuration
+MEQ supports is listed; those MEQ-JAX has not reached yet are generated as
+skipped cases carrying the reason, rather than commented out. ``pytest -rs``
+prints what is left.
+
+One gap does not fit the matrix: the Newton-Raphson check at the end of
+``test_fgeF`` runs the solve but asserts nothing (TODO(adedieu)), so
+convergence is unverified for every configuration.
+"""
 
 import dataclasses
 import functools
@@ -32,36 +42,107 @@ import numpy as np
 jax.config.update('jax_enable_x64', True)
 
 
-_TASKS = {
+# Parity status of each axis of the test matrix. Each axis maps every value
+# MEQ supports to either None, meaning MEQ-JAX is at parity and the case runs,
+# or a reason why not, in which case the case is generated but skipped. To
+# close a gap, set it to None and fix what the comparison then shows.
+_DOUBLETS = 'doublets not fully supported (BfpData, multi-domain CDE)'
+_XPOINT = 'X-point/limiter shapes not yet verified against Octave'
+
+_SHOTS = {
     'circular': 1,
-    # 'diverted': 2,
-    # 'diverted2': 3,
-    # 'squashed': 5,
-    # 'doublet': 82,
-    # 'droplets': 84,
-    # 'doublet_with_mantle_current': 88,
+    'diverted': 2,
+    'diverted2': 3,
+    'squashed': 5,
+    'doublet': 82,
+    'droplets': 84,
+    'doublet_with_mantle_current': 88,
 }
-_ICSINT = 0,  # 1
-_ALGOSNL = 'all-nl',  # 'all-nl-Fx'
-# TODO(adedieu): 'Newton-GS' is broken
 
-_TEST_TYPE = 'fbt',  # 'fge'
+_TASKS = {
+    'circular': None,
+    'diverted': _XPOINT,
+    'diverted2': _XPOINT,
+    'squashed': _XPOINT,
+    'doublet': _DOUBLETS,
+    'droplets': _DOUBLETS,
+    'doublet_with_mantle_current': _DOUBLETS,
+}
 
-_TEST_CASES = []
-for (name, shot_), test_type_, icsint_, algosNL_ in itertools.product(
-    _TASKS.items(), _TEST_TYPE, _ICSINT, _ALGOSNL
-):
-  _TEST_CASES.append(
-      dict(
-          testcase_name=(
-              f'{name}_{test_type_}_algosNL_{algosNL_}_icsint_{icsint_}'
-          ),
-          test_type=test_type_,
-          algosNL=algosNL_,
-          shot=shot_,
-          icsint=icsint_,
-      )
+_TEST_TYPES = {
+    'fbt': None,
+    'fge': 'evolutive (fge) path not yet verified against Octave',
+}
+
+_ICSINT = {
+    0: None,
+    1: 'icsint=1 not yet verified against Octave',
+}
+
+_ALGOSNL = {
+    'all-nl': None,
+    'all-nl-Fx': "algoNL 'all-nl-Fx' not yet verified against Octave",
+    'Newton-GS': "algoNL 'Newton-GS' is broken (TODO(adedieu))",
+}
+
+
+def _at_parity(axis):
+  """Returns the values of an axis that MEQ-JAX matches Octave on."""
+  return [value for value, reason in axis.items() if reason is None]
+
+
+def _baseline(axis):
+  """Returns the value an axis is held at while another axis is varied."""
+  values = _at_parity(axis)
+  if not values:
+    raise ValueError('no value on this axis is at parity')
+  return values[0]
+
+
+def _make_case(task, test_type, icsint, algosNL, reason):
+  return dict(
+      testcase_name=(
+          f'{task}_{test_type}_algosNL_{algosNL}_icsint_{icsint}'
+      ),
+      test_type=test_type,
+      algosNL=algosNL,
+      shot=_SHOTS[task],
+      icsint=icsint,
+      skip_reason=reason,
   )
+
+
+# Cross product over the values at parity, so coverage grows back as gaps
+# close.
+_TEST_CASES = [
+    _make_case(task, test_type_, icsint_, algosNL_, None)
+    for task, test_type_, icsint_, algosNL_ in itertools.product(
+        _at_parity(_TASKS),
+        _at_parity(_TEST_TYPES),
+        _at_parity(_ICSINT),
+        _at_parity(_ALGOSNL),
+    )
+]
+
+# One case per remaining gap, with the other axes at baseline, so
+# un-skipping a case isolates a single feature.
+_BASELINE_CASE = dict(
+    task=_baseline(_TASKS),
+    test_type=_baseline(_TEST_TYPES),
+    icsint=_baseline(_ICSINT),
+    algosNL=_baseline(_ALGOSNL),
+)
+for _axis_name, _axis in (
+    ('task', _TASKS),
+    ('test_type', _TEST_TYPES),
+    ('icsint', _ICSINT),
+    ('algosNL', _ALGOSNL),
+):
+  for _value, _reason in _axis.items():
+    if _reason is not None:
+      _TEST_CASES.append(
+          _make_case(**{**_BASELINE_CASE, _axis_name: _value}, reason=_reason)
+      )
 
 
 # isEvolutive is always false
@@ -145,13 +226,21 @@ opts = optsF('dojacx',true,'dojacu',true,'dojacxdot',true,'dopost',true);
 # pylint: disable=invalid-name
 class FgeFTest(parameterized.TestCase):
 
+  _oct_session = None
+
   @classmethod
-  def setUpClass(cls):
-    super().setUpClass()
-    cls._oct = octave_utils.create_meq_oct2py_instance()
+  def _octave(cls):
+    """Returns a shared Octave session, created on first use.
+
+    Created lazily rather than in setUpClass so that cases skipped for lack
+    of parity are reported as skips even where MEQ is not installed.
+    """
+    if cls._oct_session is None:
+      cls._oct_session = octave_utils.create_meq_oct2py_instance()
+    return cls._oct_session
 
   @parameterized.named_parameters(_TEST_CASES)
-  def test_fgeF(self, test_type, algosNL, shot, icsint):
+  def test_fgeF(self, test_type, algosNL, shot, icsint, skip_reason):
     """Test computation of residual and jacobian.
 
     Args:
@@ -159,7 +248,14 @@ class FgeFTest(parameterized.TestCase):
       algosNL: The non-linear solver to use. Might not be necessary?
       shot: The shot number.
       icsint: Whether to use icsint.
+      skip_reason: Why this configuration is not yet at parity with Octave
+        MEQ, or None if it is expected to pass.
     """
+    if skip_reason is not None:
+      self.skipTest(skip_reason)
+
+    self._oct = self._octave()
+
     if test_type == 'fbt':
       cmd = _FBT_OCTAVE_CMD
     elif test_type == 'fge':
