@@ -30,6 +30,25 @@ Then, from inside the MEQ-JAX folder, simply run
 python -m pip install .
 ```
 
+This installs the CPU-only JAX wheel, which is what the parity tests against
+Octave need. For an accelerator, use the corresponding extra:
+
+```
+python -m pip install '.[cuda]'
+python -m pip install '.[tpu]'
+```
+
+[uv](https://docs.astral.sh/uv/) works too, and resolves the CUDA wheels
+considerably faster:
+
+```
+uv sync --extra cuda
+uv run python -c "import jax; print(jax.devices())"
+```
+
+Note that parity requires float64, which most consumer and workstation GPUs run
+far slower than float32.
+
 Note that if you are using OpenBLAS, you need to disable multithreading, by
 setting `OPENBLAS_NUM_THREADS=1` and `OMP_NUM_THREADS=1`, otherwise execution
 will freeze. This is not an issue with MKL or Apple Accelerate.

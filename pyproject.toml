@@ -29,6 +29,12 @@ dependencies = [
 
 readme = "README.md"
 
+# Accelerator support; the base install is CPU-only. jax[cuda] follows
+# whichever CUDA major version JAX defaults to.
+[project.optional-dependencies]
+cuda = ["jax[cuda] >= 0.9.0.1"]
+tpu = ["jax[tpu] >= 0.9.0.1"]
+
 [tool.setuptools]
 packages = ["meq_jax", "meq_jax._src"]
 
