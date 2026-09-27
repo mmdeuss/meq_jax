@@ -799,7 +799,9 @@ def fgeF(
     if L.np > 0:
       residualcde = resscalp * residualcde
   else:
-    residualcde = jnp.array(meqcde.meqcde(
+    # fgeF.m asks meqcde for one output here, which in Matlab means just the
+    # residual, unscaled. Python returns all fifteen, so take the first.
+    residualcde = meqcde.meqcde(
         L=L,
         LX=LX,
         LY=LYp,
@@ -811,7 +813,7 @@ def fgeF(
         F1=F1,
         Ie=Ie,
         Opy=Opy,
-    ))
+    )[0]
 
   # Circuit equation residuals
   residualcirc = None
