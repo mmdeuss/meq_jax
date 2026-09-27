@@ -333,6 +333,8 @@ class InputData:
   ag: chex.Array | None = None
   bp: chex.Array | None = None
   bpD: chex.Array | None = None
+  bt: chex.Array | None = None
+  btD: chex.Array | None = None
   Ip: chex.Array | None = None
   IpD: chex.Array | None = None
   li: float | None = None

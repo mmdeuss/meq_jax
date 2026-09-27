@@ -204,6 +204,38 @@ def _li_core(
   return Wp / WN0 - Co * (vec @ ag) ** 2 / LIp02
 
 
+def _bt_core(
+    L: types.StaticData,
+    LX: types.InputData,
+    F0: jt.Float[jt.Array, ''],
+    F1: jt.Float[jt.Array, ''],
+    rA: jt.Float[jt.Array, ''],
+    dr2FA: jt.Float[jt.Array, ''],
+    dz2FA: jt.Float[jt.Array, ''],
+    drzFA: jt.Float[jt.Array, ''],
+    ag: jt.Float[jt.Array, 'nP+nT'],
+    Fx: jt.Float[jt.Array, 'nr2+2 nz2+2'],
+    Opy: jt.Float[jt.Array, 'nr2 nz2'],
+    TpDg: jt.Float[jt.Array, 'nP+nT'] | jt.Float[jt.Array, 'batch nP+nT'],
+    ITpDg: jt.Float[jt.Array, 'nP+nT'] | jt.Float[jt.Array, 'batch nP+nT'],
+    iD: int,
+    Co: jt.Float[jt.Array, ''],
+) -> jt.Float[jt.Array, '']:
+  """Core residual calculation for the bt constraint. Co = target bt."""
+  del F0, F1, TpDg, rA, dr2FA, dz2FA, drzFA
+  P = L.P
+  assert P is not None
+  vec = ITpDg if ITpDg.ndim == 1 else ITpDg[:, iD - 1]
+
+  _, Ft0, _ = vizr.vizrmex(
+      Fx, Opy == iD, L.ry, L.iry, LX.rBt, L.drx, L.dzx)
+  Wt0 = 2.5e6 * LX.rBt * Ft0
+
+  # 100*mu0/pi/(b0^2 * r0^2 * Sx), with Sx the area of the flux grid.
+  scal = 1e2 / (2.5e6 * P.r0 * P.b0 * (P.b0 * P.r0 * (L.nx * L.dsx)))
+  return scal * ((vec * L.fPg) @ ag - Co * Wt0)
+
+
 def _qA_core(
     L: types.StaticData,
     LX: types.InputData,
@@ -297,6 +329,7 @@ def meqagconfun() -> dict[str, ConstraintFn]:
   return {
       'ag': _make_constraint_fn(_ag_core),
       'bp': _make_constraint_fn(_bp_core),
+      'bt': _make_constraint_fn(_bt_core),
       'Ip': _make_constraint_fn(_ip_core),
       'li': _make_constraint_fn(_li_core),
       'Wk': _make_constraint_fn(_wk_core),
@@ -313,6 +346,10 @@ def meqagconfun_core(fun_name: str) -> Callable[..., jt.Float[jt.Array, '']]:
       return _bp_core
     case 'bpD':
       return _bp_core
+    case 'bt':
+      return _bt_core
+    case 'btD':
+      return _bt_core
     case 'Ip':
       return _ip_core
     case 'IpD':

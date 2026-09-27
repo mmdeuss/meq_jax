@@ -64,6 +64,7 @@ class MeqagconfunTest(parameterized.TestCase):
         bfp=types.BfpData(nP=int(bfp[0]), nT=int(bfp[1])),
         ry=oct2py.eval("L.ry;").squeeze(),
         iry=oct2py.eval("L.iry;").squeeze(),
+        nx=int(oct2py.eval("L.nx;").item()),
         dsx=oct2py.eval("L.dsx;").item(),
         dzx=oct2py.eval("L.dzx;").item(),
         drx=oct2py.eval("L.drx;").item(),
@@ -72,6 +73,7 @@ class MeqagconfunTest(parameterized.TestCase):
     lx = types.InputData(
         ag=LX["ag"].squeeze(),
         bp=LX["bp"].item(),
+        bt=LX["bt"].item(),
         Ip=LX["Ip"].item(),
         li=LX["li"].item(),
         qA=LX["qA"].item(),
