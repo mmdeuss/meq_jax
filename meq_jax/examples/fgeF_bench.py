@@ -56,7 +56,6 @@ import functools
 import itertools
 import os
 import platform
-from pathlib import Path  # pylint: disable=g-importing-member
 import statistics
 import subprocess
 import time
@@ -152,7 +151,6 @@ def main(argv: Sequence[str]) -> None:
   print()
 
   octave = octave_utils.create_meq_oct2py_instance()
-  octave.addpath(str(Path(__file__).parent))
 
   hdr = (f'{"grid":>7} {"shot":>5} {"usecs":>6} {"jacx":>6} '
          f'{"jax ms":>9} {"±IQR":>7} {"meq ms":>9} {"±IQR":>7} '

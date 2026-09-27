@@ -16,7 +16,6 @@
 
 from collections.abc import Sequence
 import functools
-from pathlib import Path  # pylint: disable=g-importing-member
 
 from absl import app
 from absl import logging
@@ -46,8 +45,6 @@ def main(argv: Sequence[str]) -> None:
 
   # Initialize Octave
   meq_instance = meqpy_impl.MeqPy()
-  # Include path for strip_function_handles.m
-  meq_instance.octave_eval(f"addpath('{str(Path(__file__).parent)}');")
   meq_instance.init_fge(
       tokamak, shot, time, source, default_meq_params={'debug': 2}
     )

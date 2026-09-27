@@ -105,11 +105,9 @@ _LOAD_INIT = flags.DEFINE_string(
 
 def _init_from_octave():
   """Initializes from Octave. meqpy is imported lazily so --load_init needs no MEQ."""
-  from pathlib import Path  # pylint: disable=g-import-not-at-top
   from meqpy import meqpy_impl  # pylint: disable=g-import-not-at-top
 
   meq_instance = meqpy_impl.MeqPy()
-  meq_instance.octave_eval(f"addpath('{str(Path(__file__).parent)}');")
   meq_instance.init_fge(
       _TOKAMAK.value,
       _SHOT.value,

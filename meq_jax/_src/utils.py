@@ -15,6 +15,7 @@
 """Utility functions for MEQ."""
 
 import dataclasses
+import os
 from typing import Any
 
 from absl import logging
@@ -28,6 +29,11 @@ import oct2py
 import scipy.sparse
 
 from meq_jax._src import types
+
+# Octave helpers shipped with this package. init_from_octave needs
+# strip_function_handles.m, so it puts this directory on the Octave path
+# rather than leaving every caller to do it.
+_MATLAB_DIR = os.path.join(os.path.dirname(__file__), 'matlab')
 
 
 def struct_to_dataclass(struct: oct2py.Struct, cls: type[Any]) -> Any:
@@ -193,6 +199,7 @@ def init_from_octave(meq_instance: meqpy_impl.MeqPy,
           meq_instance.octave_eval('State.dstate;', nout=1))),
       nnoc=int(meq_instance.octave_eval('State.nnoc;', nout=1).item()),
   )
+  meq_instance.octave_eval(f"addpath('{_MATLAB_DIR}');", log=False)
   meq_instance._strip_function_handles('Lfge', 'Lfge_safe')  # pylint: disable=protected-access
   l_struct = meq_instance.octave_eval('Lfge_safe;', nout=1)
   static = struct_to_dataclass(l_struct, types.StaticData)
