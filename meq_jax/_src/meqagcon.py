@@ -120,14 +120,23 @@ def _meqagcon(
   for i, ag_data in enumerate(agconc):
     try:
       Co = getattr(LX, ag_data.lx_name)
-      if ag_data.index is not None and not jnp.isscalar(Co):
-        Co_arr = jnp.atleast_1d(Co)
-        if Co_arr.shape[0] == 1:
-          Co = Co_arr[0]
-        else:
-          Co = Co_arr[ag_data.index - 1]
     except AttributeError as e:
       raise ValueError(f'Unknown constraint: {ag_data.fun_name}') from e
+
+    if Co is None or (ag_data.index is not None and not jnp.isscalar(Co)):
+      Co_arr = jnp.zeros(0) if Co is None else jnp.atleast_1d(Co)
+      if Co_arr.shape[0] == 0:
+        # No target. MEQ allows that when the constraint's domain is inactive:
+        # meqagcon.m skips the constraint function before it would read
+        # LX.(f)(ii), and with no plasma no domain is active, so LX need not
+        # carry the targets at all. Here the cond below is traced on both
+        # sides, so the read still has to produce something; the branch that
+        # uses it is not the one taken.
+        Co = jnp.zeros(())
+      elif Co_arr.shape[0] == 1:
+        Co = Co_arr[0]
+      else:
+        Co = Co_arr[ag_data.index - 1]
 
     assert hasattr(L.ind, 'ixg')
     res, grad = jax.lax.cond(
