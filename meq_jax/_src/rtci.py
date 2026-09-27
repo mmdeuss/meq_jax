@@ -125,7 +125,11 @@ def rtcimex(
   da = jnp.where(mask_ptype2, -dap, da)
 
   # Condition 2: Derivative reverses close to boundary
-  grad_check_mask = (df * (Fo - fq)) > 1e-13
+  # Compare against zero exactly, as libmeq/rtci.c does. Where a contour
+  # touches an origin point, Fo - fq is about one ULP, but its sign still
+  # picks the right branch. A tolerance here loses that, and the step walks
+  # to the far intersection instead of the near one.
+  grad_check_mask = (df * (Fo - fq)) > 0
   mask_ptype1 = jnp.logical_and(grad_check_mask, ptype == 1)
   da = jnp.where(mask_ptype1, -dap, da)
 
