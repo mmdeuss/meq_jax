@@ -1,0 +1,38 @@
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Packaging / build artifacts
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+meqvenv/
+
+# uv lockfile. meq_jax is a library, so resolution is left to whoever
+# installs it.
+uv.lock
+
+# Test / tooling caches
+.pytest_cache/
+.hypothesis/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# JAX persistent compilation cache
+.cache/jax_meq/
+
+# Octave workspace dumps left by oct2py sessions
+octave-workspace
+
+# Editor / OS cruft
+.vscode/
+.idea/
+.DS_Store
