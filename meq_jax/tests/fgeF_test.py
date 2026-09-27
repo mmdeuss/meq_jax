@@ -47,7 +47,6 @@ jax.config.update('jax_enable_x64', True)
 # or a reason why not, in which case the case is generated but skipped. To
 # close a gap, set it to None and fix what the comparison then shows.
 _DOUBLETS = 'doublets not fully supported (BfpData, multi-domain CDE)'
-_XPOINT = 'X-point/limiter shapes not yet verified against Octave'
 
 _SHOTS = {
     'circular': 1,
@@ -61,9 +60,9 @@ _SHOTS = {
 
 _TASKS = {
     'circular': None,
-    'diverted': _XPOINT,
-    'diverted2': _XPOINT,
-    'squashed': _XPOINT,
+    'diverted': None,
+    'diverted2': None,
+    'squashed': None,
     'doublet': _DOUBLETS,
     'droplets': _DOUBLETS,
     'doublet_with_mantle_current': _DOUBLETS,
