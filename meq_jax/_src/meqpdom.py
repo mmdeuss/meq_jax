@@ -23,6 +23,7 @@ from meq_jax._src import asxycs
 from meq_jax._src import bavx
 from meq_jax._src import fbnd
 from meq_jax._src import fl4p
+from meq_jax._src import fl4pinterp
 from meq_jax._src import flcs
 from meq_jax._src import types
 
@@ -173,7 +174,11 @@ def meqpdom(
     rl = L.G.rl
     zl = L.G.zl
   elif L.P.ilim == 2:
-    raise NotImplementedError('fl4pinterp not implemented')
+    # As ilim=1, but the limiter point moves onto the interpolated extremum,
+    # so rl and zl come back from fl4pinterp rather than straight from L.G.
+    rl, zl, fl, drfl, dzfl = fl4pinterp.fl4pinterp(
+        fx, L.kxl - 1, L.clx, L.kxlh - 1, L.clhx, fn, L.G.rl, L.G.zl
+    )
   elif L.P.ilim == 3:
     # Use cubic spline for Fx interpolation and pp interpolation for the limiter
     fl, rl, zl, drfl, dzfl = flcs.flcs(fx, fn, L)

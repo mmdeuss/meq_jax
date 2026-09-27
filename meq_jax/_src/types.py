@@ -270,6 +270,8 @@ class StaticData:
   dimw: int | None = field(default=None, metadata=dict(static=True))
   kxl: chex.Array | None = None
   clx: chex.Array | None = None
+  kxlh: chex.Array | None = None
+  clhx: chex.Array | None = None
   lxy: chex.Array | None = None  # 2D
   Oly: chex.Array | None = None
   M1q: chex.Array | None = None  # 2D
